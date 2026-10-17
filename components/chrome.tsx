@@ -1,0 +1,4 @@
+import { ArrowUpRight } from "lucide-react";
+export function Brand(){return <a href="/" className="brand" aria-label="Wishnest home"><svg className="brand-mark" viewBox="0 0 36 36" width="34" height="34" aria-hidden="true"><path d="M4 9l7 20 7-13 7 13 7-20M18 2v6m-4-3h8" fill="none" stroke="currentColor" strokeWidth="4" strokeLinejoin="round"/></svg>wishnest<span className="brand-dot">✳</span></a>;}
+export function Header(){return <header className="site-header"><Brand/><nav aria-label="Main navigation"><a href="/#try-it">Find your gift</a><a href="/#how-it-works">How it works</a><a href="/demo">Explore a list</a></nav><a className="button button-small dark" href="/dashboard">My Wishnest <ArrowUpRight size={16}/></a></header>;}
+export function Footer(){return <footer className="footer"><Brand/><p>Less guessing. More you.</p><span>Wishnest · Early access · 2026</span></footer>;}

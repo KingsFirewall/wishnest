@@ -1,0 +1,44 @@
+// Run only against the local Worker; fixture identity headers are never used against a hosted site.
+import assert from 'node:assert/strict';
+const base=process.env.WISHNEST_TEST_ORIGIN||'http://127.0.0.1:8787';
+if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw new Error('Local test server required.');
+const user=`test-${crypto.randomUUID()}`;
+async function request(path,{method='GET',body,owner=false,cookie='',origin=base}={}){
+ const headers={Origin:origin,...(owner?{'oai-authenticated-user-id':user,'oai-authenticated-user-email':'test@example.invalid'}:{}),...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:{})};
+ const r=await fetch(base+'/api/'+path,{method,headers,body:body?JSON.stringify(body):undefined});return{status:r.status,cookie:r.headers.get('set-cookie')?.split(';')[0],data:await r.json()};
+}
+assert.equal((await request('celebrations')).status,401);
+const event={title:'API smoke test',occasion:'Birthday',date:'2026-01-01',message:'Local test fixture',currency:'USD',theme:'sage',visibility:'unlisted'};
+const created=await request('celebrations',{method:'POST',body:event,owner:true});assert.equal(created.status,201,JSON.stringify(created));
+const id=created.data.id;
+assert.equal((await request('celebrations/'+id)).status,401);
+const page=await request('celebrations/'+id,{owner:true});assert.equal(page.status,200);assert.ok(!('owner' in page.data.celebration));
+const slug=page.data.celebration.slug;
+const wish={title:'Test gift',note:'Testing reliable reservations',kind:'product',category:'Other',price:1500,url:'https://example.com/item',image:'',priority:0,art:'gift'};
+assert.equal((await request(`celebrations/${id}/wishes`,{method:'POST',owner:true,body:{...wish,url:'javascript:alert(1)'}})).status,400);
+const added=await request(`celebrations/${id}/wishes`,{method:'POST',owner:true,body:wish});assert.equal(added.status,201);const wid=added.data.id;
+assert.equal((await request(`wishes/${wid}/reserve`,{method:'POST',body:{},origin:'https://evil.invalid'})).status,403);
+assert.equal((await request(`wishes/${wid}/reserve`,{method:'POST',body:{},owner:true})).status,403);
+const pair=await Promise.all([request(`wishes/${wid}/reserve`,{method:'POST',body:{}}),request(`wishes/${wid}/reserve`,{method:'POST',body:{}})]);
+assert.deepEqual(pair.map(x=>x.status).sort(),[200,409]);const cookie=pair.find(x=>x.status===200).cookie;
+assert.ok(cookie);
+const guest=await request('lists/'+slug,{cookie});assert.equal(guest.data.wishes[0].mine,true);assert.ok(!('token' in guest.data.wishes[0]));
+const other=await request('lists/'+slug);assert.equal(other.data.wishes[0].mine,false);assert.equal(other.data.wishes[0].expires,null);
+const owner=await request('celebrations/'+id,{owner:true});assert.equal(owner.data.wishes[0].state,'handled');assert.equal(owner.data.wishes[0].expires,null);
+assert.equal((await request(`wishes/${wid}/release`,{method:'POST',body:{}})).status,403);
+assert.equal((await request(`wishes/${wid}`,{method:'PATCH',body:{...wish,title:'Changed'},owner:true})).status,409);
+assert.equal((await request(`wishes/${wid}/extend`,{method:'POST',body:{},cookie})).status,200);
+assert.equal((await request(`wishes/${wid}/extend`,{method:'POST',body:{},cookie})).status,409);
+assert.equal((await request(`wishes/${wid}/purchase`,{method:'POST',body:{},cookie})).status,200);
+assert.equal((await request('lists/'+slug,{cookie})).data.wishes[0].state,'purchased');
+assert.equal((await request(`wishes/${wid}/reserve`,{method:'POST',body:{}})).status,409);
+assert.equal((await request(`wishes/${wid}/release`,{method:'POST',body:{},cookie})).status,200);
+assert.equal((await request('lists/'+slug)).data.wishes[0].state,'available');
+assert.equal((await request(`wishes/${wid}/pause`,{method:'POST',body:{},owner:true})).status,200);
+assert.equal((await request('lists/'+slug)).data.wishes.length,0);
+assert.equal((await request(`wishes/${wid}/reserve`,{method:'POST',body:{}})).status,404);
+assert.equal((await request(`wishes/${wid}/resume`,{method:'POST',body:{},owner:true})).status,200);
+assert.equal((await request(`celebrations/${id}`,{method:'PATCH',body:{...event,visibility:'private'},owner:true})).status,200);
+assert.equal((await request('lists/'+slug)).status,404);
+assert.equal((await request(`wishes/${wid}/reserve`,{method:'POST',body:{}})).status,404);
+console.log('PASS: persistent CRUD, URL validation, authorization, CSRF, concurrent reservation, private serialization, extension limit, purchase, release, pause, and private visibility.');
