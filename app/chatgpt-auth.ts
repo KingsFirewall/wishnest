@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -19,6 +20,9 @@ const SIGN_OUT_PATH = "/signout-with-chatgpt";
 const CALLBACK_PATH = "/callback";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
+  // These headers are only trustworthy behind ChatGPT Sites (or the local dev
+  // mock, which strips client copies). Anywhere else a visitor could forge them.
+  if (!import.meta.env.DEV && env.TRUST_CHATGPT_AUTH_HEADERS !== "true") return null;
   const requestHeaders = await headers();
   const userId = requestHeaders.get(USER_ID_HEADER);
   const email = requestHeaders.get(USER_EMAIL_HEADER);
