@@ -1,59 +1,32 @@
-# Wishnest — Redesigned early-access release
+# Wishnest — Vercel migration
 
-This implementation starts the product described in PRD.md. It is an early-access vertical slice, not the completed V1.
+## Preserved product
 
-## Implemented
+Existing wishlist and celebration UI, colors, CSS, artwork, homepage, guest gift finder, owner budget-balance tool, demo, filters, and form layout remain intact. Header authentication controls and sign-in/up pages are the only required new UI surfaces. Minor framework lint/hydration fixes do not alter presentation.
 
-- Original electric-blue/ink/lime identity, editorial homepage, generated still-life imagery, redesigned event pages and owner workspace. See REDESIGN.md for the revised UI/UX specification.
-- Functional guest gift finder with budget/type matching, priority ranking, availability checks and direct wish selection.
-- Owner wishlist-balance tool with configurable price bands and recommendations independent of guest reservation activity.
-- Interactive, clearly labelled sample celebration at `/demo`; sample changes reset on reload and never affect real data.
-- Owner authentication through the hosting platform’s ChatGPT identity, with server-side ownership checks.
-- Persistent D1 celebrations and wishes, owner dashboard, occasion/date/currency/theme settings.
-- Private or unlisted list visibility; private reads and reservations are blocked server-side.
-- Manual wishes with optional external HTTPS product link, image upload, notes, estimated price, category, priority, and illustration.
-- R2 photos: browser resizing and re-encoding remove source metadata; server checks file signatures and size; access respects list visibility.
-- Real guest list URLs, category/budget/availability filters, sorting, and search for larger lists.
-- Atomic 24-hour reservations, one 24-hour extension, purchase self-confirmation, release, and received/reopen actions.
-- Reservation authorization via an HttpOnly cookie. The database stores its SHA-256 hash. Owner and other guest responses exclude tokens and private hold details.
-- Graceful error, loading, empty, and conflict states. Native modal dialogs provide focus containment and Escape dismissal.
+## Infrastructure implemented
 
-## Review decisions and corrections to the PRD
+- Standard Next.js 16.3.8 / React 19.2.9, Node 22.x.
+- Lazy Neon HTTP client and versioned SQL migrations; bigint millisecond timestamps.
+- Private Blob image proxy and database-backed ownership.
+- Clerk session authentication, protected owner dashboard and server-side checks.
+- Strict request origin validation, bounded request bodies, generic errors and security headers.
+- Atomic reservations, owner updates and pauses; transaction-serialized ten-hold limit.
+- PGlite API/reservation/privacy/photo tests and a credential-dependent localhost HTTP runner.
 
-1. A receipt upload alone is not verified evidence. No implemented action sets a purchase to verified. Independent verification remains future work.
-2. Self-confirmed purchases remain blocked until release/reconciliation. Only temporary reservations expire.
-3. Reservation expiry uses server time, in UTC. Reads calculate availability and atomic updates reclaim expired holds without needing a background job. Reminder delivery is a separate future service.
-4. A recipient cannot self-reserve. Owner serializers mask reservation versus purchase state and suppress giver identity.
-5. Editing or pausing an actively handled gift is blocked until released, avoiding silent variant changes without a notification service.
-6. “Unlisted” is not invitation authentication. Only Private/Unlisted are exposed in this release; invite-only and indexed public discovery are not presented as implemented.
-7. Money figures are stored as integer minor units. A target amount is never represented as received money without payment confirmation.
+## Verification
 
-## Verification completed
+20 tests pass, including PostgreSQL API/reservation/privacy/photo checks, migration repeatability/checksum/rollback checks, and the Neon HTTP batch transport contract. TypeScript is clean; lint has zero errors and four retained presentation/performance warnings. The anonymous localhost HTTP smoke test passes. The production dependency audit is recorded in the PR.
 
-- TypeScript type check: passed.
-- Production Worker build: passed.
-- Thirteen automated tests: eight reservation/state/privacy invariants and five gift-finder/list-balance tests.
-- Real local D1 API smoke test: passed (CRUD, URL validation, authorization, cross-origin rejection, simultaneous reservations, private serialization, extension limit, purchase, release, pause, and private lists).
-- Browser check: homepage at desktop and 390px width; guest dialog reservation, self-confirmed purchase wording, and release flow. A mobile heading adjustment followed this check.
-- Not yet verified across Safari/Firefox/Edge or on physical devices. Hosted owner sign-in and photo upload need continued acceptance testing.
+The standard local Turbopack build is blocked by this host's process/port permissions. A webpack production build succeeds and produces the route manifest; this is a diagnostic only and the checked-in build command remains `next build`. Local checks use the available Node 26 runtime. A clean Node 22 default-build verification remains pending. No credential-dependent verification is claimed.
 
-## Explicitly pending
+## Pending before launch
 
-- Transactional email, reminders, email-based guest recovery, and durable guest management links.
-- Receipt intake, retention/review/redaction service, retailer confirmation, refunds/cancellations, and delivery tracking.
-- Contributions, payment processing, payouts, and launch-market choices. There are no working payment controls or fake checkout confirmations.
-- Automatic retailer metadata import; links are preserved and the owner supplies details manually.
-- Invite-only access, co-owners, upload quotas/orphan cleanup, stronger anonymous-abuse protection, audit/event history, reorder controls, archive/delete/export, and thank-you sending.
-- Full browser/device and accessibility audit. The UI uses accessible native controls and reduced-motion styles but is not certified WCAG compliant.
+- Configure Neon, private Blob, Clerk and run migrations against the intended fresh database.
+- Real sign-up/sign-in, database, photo storage and cookie testing with deployed credentials.
+- Vercel Preview Origin/proxy checks, two-guest browser flow and physical-device/cross-browser acceptance.
+- Verify a clean install and the default production build on Node 22 in Vercel Preview or CI. The connected GitHub token lacks workflow-write scope, so no Actions workflow has been added.
 
-## Access and deployment
+The user explicitly required zero legacy-platform names even in lockfile metadata. The ORM and its migration generator were therefore replaced by direct parameterized Neon queries and checksummed SQL migrations. Dependency manifests meet the literal zero-name requirement; see README for the approved stack adjustment.
 
-The Sites project was created during the prior build attempt and remains owner-private. Even an unlisted celebration link cannot bypass that site-level access. The guest application route does not itself require an account; external guest use requires an explicit site-audience change in a later step.
-
-The active development checkout is `/Users/kingsfirewall/Documents/ChatGPT/Wishnest`. The user-designated project archive is `/Users/kingsfirewall/Documents/WIshnest.io/`; a source copy excluding runtime data, dependencies, and secrets is saved there after validation.
-
-## Development
-
-Use Node 22.13+ (Node 26 used for this build), install with the bundled Sites dependency helper, and generate migrations with `npm run db:generate` after schema changes. Build with the Sites build helper. Apply generated SQL to the local D1 database using the commands in README.md, then run `npm run start` for local preview with storage. Deployed owner identity is supplied by the hosting platform; local API tests supply fixture identity headers to the localhost server only.
-
-Run invariants with `node --test tests/reservations.test.mjs tests/gift-finder.test.mjs`. Run type checks with `node node_modules/typescript/bin/tsc --noEmit`. Real APIs must never accept identity headers from an untrusted publicly exposed origin; hosting dispatch is the trusted identity boundary.
+Existing product limitations remain: no independent purchase verification, payments, email reminders/recovery, automatic product metadata import, invite-only lists, co-owners, or full production abuse/storage-quota controls.

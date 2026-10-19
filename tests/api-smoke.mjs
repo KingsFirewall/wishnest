@@ -1,13 +1,28 @@
-// Run only against the local Worker; fixture identity headers are never used against a hosted site.
+// Real Next.js HTTP smoke test. Use a Clerk test-instance session JWT, never a production identity.
 import assert from 'node:assert/strict';
-const base=process.env.WISHNEST_TEST_ORIGIN||'http://127.0.0.1:8787';
+const base=process.env.WISHNEST_TEST_ORIGIN||'http://127.0.0.1:3000';
+const parsed=new URL(base);
+if(parsed.protocol!=='http:' || parsed.username || parsed.password || parsed.pathname!=='/' || parsed.search || parsed.hash) throw new Error('Plain localhost origin required.');
 if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw new Error('Local test server required.');
-const user=`test-${crypto.randomUUID()}`;
+const sessionToken=process.env.WISHNEST_TEST_SESSION_TOKEN;
+const publicOnly=process.argv.includes('--public-only');
+if(!sessionToken && !publicOnly) throw new Error('Set WISHNEST_TEST_SESSION_TOKEN to a short-lived Clerk test-user session JWT, or use --public-only.');
 async function request(path,{method='GET',body,owner=false,cookie='',origin=base}={}){
- const headers={Origin:origin,...(owner?{'oai-authenticated-user-id':user,'oai-authenticated-user-email':'test@example.invalid'}:{}),...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:{})};
- const r=await fetch(base+'/api/'+path,{method,headers,body:body?JSON.stringify(body):undefined});return{status:r.status,cookie:r.headers.get('set-cookie')?.split(';')[0],data:await r.json()};
+ const headers={Origin:origin,...(owner?{Authorization:`Bearer ${sessionToken}`}:{}),...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:{})};
+ const r=await fetch(base+'/api/'+path,{redirect:'error',method,headers,body:body?JSON.stringify(body):undefined});return{status:r.status,cookie:r.headers.get('set-cookie')?.split(';')[0],data:await r.json()};
 }
 assert.equal((await request('celebrations')).status,401);
+const legacyHeader=['oai','authenticated','user','id'].join('-');
+assert.equal((await fetch(base+'/api/celebrations',{redirect:'error',headers:{[legacyHeader]:'forged'}})).status,401);
+assert.equal((await request('celebrations',{method:'POST',body:{},origin:'https://evil.invalid'})).status,403);
+assert.equal((await fetch(base+'/api/celebrations',{redirect:'error',method:'POST',body:'{}'})).status,403);
+const home=await fetch(base,{redirect:'error'});
+assert.equal(home.status,200);
+assert.equal(home.headers.get('x-content-type-options'),'nosniff');
+assert.equal(home.headers.get('x-frame-options'),'DENY');
+if(publicOnly) { console.log('PASS: anonymous access boundaries, forged identity rejection, CSRF and security headers. Authenticated flows NOT tested.'); process.exit(0); }
+assert.equal((await request('celebrations',{owner:true})).status,200,'Clerk test session must authenticate before creating fixtures.');
+
 const event={title:'API smoke test',occasion:'Birthday',date:'2026-01-01',message:'Local test fixture',currency:'USD',theme:'sage',visibility:'unlisted'};
 const created=await request('celebrations',{method:'POST',body:event,owner:true});assert.equal(created.status,201,JSON.stringify(created));
 const id=created.data.id;
@@ -16,7 +31,15 @@ const page=await request('celebrations/'+id,{owner:true});assert.equal(page.stat
 const slug=page.data.celebration.slug;
 const wish={title:'Test gift',note:'Testing reliable reservations',kind:'product',category:'Other',price:1500,url:'https://example.com/item',image:'',priority:0,art:'gift'};
 assert.equal((await request(`celebrations/${id}/wishes`,{method:'POST',owner:true,body:{...wish,url:'javascript:alert(1)'}})).status,400);
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64');
+const uploaded=await fetch(base+'/api/images',{method:'POST',redirect:'error',headers:{Origin:base,Authorization:`Bearer ${sessionToken}`,'Content-Type':'image/png'},body:png});
+assert.equal(uploaded.status,201);
+const image=(await uploaded.json()).url;
+assert.match(image,/^\/api\/images\/[a-f0-9-]{36}$/);
+wish.image=image;
+assert.equal((await fetch(base+image,{redirect:'error'})).status,404);
 const added=await request(`celebrations/${id}/wishes`,{method:'POST',owner:true,body:wish});assert.equal(added.status,201);const wid=added.data.id;
+assert.equal((await fetch(base+image,{redirect:'error'})).status,200);
 assert.equal((await request(`wishes/${wid}/reserve`,{method:'POST',body:{},origin:'https://evil.invalid'})).status,403);
 assert.equal((await request(`wishes/${wid}/reserve`,{method:'POST',body:{},owner:true})).status,403);
 const pair=await Promise.all([request(`wishes/${wid}/reserve`,{method:'POST',body:{}}),request(`wishes/${wid}/reserve`,{method:'POST',body:{}})]);
@@ -41,4 +64,5 @@ assert.equal((await request(`wishes/${wid}/resume`,{method:'POST',body:{},owner:
 assert.equal((await request(`celebrations/${id}`,{method:'PATCH',body:{...event,visibility:'private'},owner:true})).status,200);
 assert.equal((await request('lists/'+slug)).status,404);
 assert.equal((await request(`wishes/${wid}/reserve`,{method:'POST',body:{}})).status,404);
-console.log('PASS: persistent CRUD, URL validation, authorization, CSRF, concurrent reservation, private serialization, extension limit, purchase, release, pause, and private visibility.');
+assert.equal((await fetch(base+image,{redirect:'error'})).status,404);
+console.log('PASS: authenticated photo upload, photo privacy, persistent CRUD, URL validation, authorization, CSRF, concurrent reservation, private serialization, extension limit, purchase, release, pause, and private visibility.');

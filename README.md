@@ -1,126 +1,83 @@
-# vinext-starter
+# Wishnest
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+Gift wishlists for celebrations, built with Next.js 16.3.8, React 19.2.9, TypeScript, Neon Postgres over HTTP, Clerk, and private Vercel Blob storage. The existing design, illustrations, wishlist tools and reservation behaviour are preserved.
 
-## Prerequisites
+## Local setup
 
-- Node.js `>=22.13.0`
-- Portable: Windows, macOS, or Linux; no Bash required
-- Managed Linux: managed Linux runtime with Bash, `flock`, `curl`, `sha256sum`, and GNU `timeout`
-- Git is required only for publishing
+Use Node **22.x** (22.18+ recommended for stable native TypeScript stripping in tests).
 
-## Sites Lifecycle
+1. Run `npm ci`.
+2. Copy `.env.example` to `.env.local`. Keep secrets out of Git and chat.
+3. Configure a Clerk development instance, a development Postgres database, and a **private** Blob store. Use separate development/preview resources, not production data.
+4. Run `npm run db:migrate` against that development database.
+5. Run `npm run dev -- --hostname 127.0.0.1`, then open http://127.0.0.1:3000.
 
-The Sites initializer copies the shared starter and selects managed-linux only when `SITES_MANAGED_LINUX_CONTAINER=1`; otherwise it selects portable. It saves the selection only in ignored `.sites-runtime/execution-profile.json`. Both profiles copy/configure first, then use the plugin's separate `install-dependencies.mjs` step to measure installation independently. Edit source under `app/` and follow the Sites skill for installation, preview, builds, and publishing.
+The public homepage and sample can render before credentials are configured. Sign-in then shows an explicit setup notice; owner access stays closed. No mock identity or insecure fallback is enabled.
 
-Run `node <plugin-root>/scripts/configure-execution-profile.mjs` only when the profile is unknown for the current checkout and environment. Profile changes do not alter tracked source or require reinstalling otherwise-valid dependencies; restart an existing preview to use the new selection. Do not commit or upload `.sites-runtime/`.
+## Environment variables
 
-This starter does not use `wrangler.jsonc`.
+| Variable | Purpose |
+| --- | --- |
+| DATABASE_URL | Neon Postgres connection URL, preferably the pooled endpoint |
+| BLOB_READ_WRITE_TOKEN | Token for a **private** Vercel Blob store |
+| NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY | Clerk application's publishable key |
+| CLERK_SECRET_KEY | Matching Clerk application's secret key; server only |
+| NEXT_PUBLIC_CLERK_SIGN_IN_URL | /sign-in |
+| NEXT_PUBLIC_CLERK_SIGN_UP_URL | /sign-up |
 
-`install:ci` runs `npm ci` once against the shared lockfile, disables parent-workspace discovery, and includes required dev/optional dependencies despite production/omit settings. Sharp defaults to prebuilt binaries unless explicitly configured otherwise. Do not overlap installers.
+Set the two Clerk URL variables as shown. Configure Clerk's permitted domains/redirects for local development, Preview and Production. Redeploy after changing public environment variables because they are included at build time.
 
-- **Portable:** Preserve host HOME, npm cache, registry, proxy, temporary paths, retry/concurrency settings, and lifecycle-script policy. Use `--prefer-offline --no-audit --no-fund`.
-- **Managed Linux:** Use the existing project-local HOME/cache/tmp setup and Linux install lock, tarball preflight, and timeout. Restore the image-seeded npm cache only when its lockfile hash matches; retain network fallback. Builds keep their existing timeout. These helpers are not invoked by the portable profile.
+## Vercel setup
 
-`scripts/sites-env.mjs` preserves the caller's HOME, npm cache, proxy, XDG, and temporary-directory configuration while defaulting Wrangler and Miniflare state to the checkout. If npm reports an unwritable cache, select a writable path with `npm_config_cache` for that install. The `dev` and `start` scripts also keep Wrangler logs inside the checkout. Generated `.sites-runtime/` and `.wrangler/` directories are disposable and ignored by Git.
+1. Import the GitHub repository. Choose Framework Preset **Next.js** and Node **22.x**. Clear earlier build/install/output overrides; leave all three at their defaults. Build is `next build`, output is `.next/`.
+2. Storage → add **Neon Postgres** from the Marketplace and connect it to the project. Confirm `DATABASE_URL` is available.
+3. Storage → create a **Blob** store with **private** access and connect it. Confirm `BLOB_READ_WRITE_TOKEN` is available. Do not substitute a public store.
+4. Add Clerk keys and sign-in/sign-up URL variables for Production and Preview. Use a Clerk development instance for testing. Consider separate preview database/storage resources.
+5. Run `npm run db:migrate` once with the intended production `DATABASE_URL` before opening the app. The command loads `.env.local` using the framework's environment loader. Double-check the target database first.
+6. Deploy the branch as a preview, finish the acceptance checks below, then review/merge the PR. Do not open guest access until these checks pass.
 
-On portable, `npm run dev` uses `vinext dev` with HMR, starting at port 5173. Vinext records the running server in ignored `.vinext/` state, rejects an ordinary duplicate launch, and recovers stale state after a stopped process; exactly simultaneous starts can race. Pass `--port <port>` or `--hostname <host>` after `npm run dev --` when needed; keep portable previews on loopback.
+Migrations are deliberately **not** in the build command: automatically migrating on every preview build can accidentally mutate shared production data and race other deployments. If adding automation later, run a separately authorized migration step against the correct database/environment.
 
-For browser QA on managed Linux, use `sites-preview start`. The project's dev script runs Vite and accepts the supervisor's `--host 0.0.0.0 --port 4173 --strictPort` arguments. The internal browser uses `http://terminal.local:4173/`; it is not a user-facing URL. The supervisor owns the preview lifecycle. The ignored local profile survives the supervisor's cleared process environment.
+The schema source of truth is `db/migrations/*.sql`. Add a new, monotonically numbered file such as `0001_descriptive_name.sql` for each schema change; never modify an applied file. There is no ORM schema generator. The runner takes an advisory lock and applies the ordered migration set and checksum history in one transaction. A failed statement or changed checksum rolls back the batch. SQL files are trusted developer-owned DDL, not user-provided content. Test the committed migration set with `npm test` before applying it. Existing databases are not upgraded from the old schema.
 
-The portable profile simulates ChatGPT sign-in only for loopback development requests. Visit `/signin-with-chatgpt?return_to=/` to sign in as `local_seedy` (`seedy@sites.test`, display name `Seedy`) and `/signout-with-chatgpt?return_to=/` to sign out. The development cookie preserves that identity across server restarts. Mock auth is disabled in the managed-linux profile and is not included in production builds; hosted authentication remains dispatch-owned.
+## Development commands
 
-The Worker uses `vinext/server/fetch-handler`, including Vinext's config-aware image handling. After building, `npm start` runs that Worker locally through Wrangler on `127.0.0.1`, sharing `.wrangler/state` with dev preview and local D1 migrations; it does not deploy the site or simulate sign-in. Use the URL printed by the server. Pass `npm start -- --port <port>` to select a different built-preview port.
+- `npm run dev`: local Next.js server.
+- `npm run build` / `npm start`: production compilation and local production server.
+- `npm run lint`: lint; existing image/navigation performance warnings are retained to avoid changing presentation.
+- `npm test`: in-process PostgreSQL/PGlite tests; no external services required.
+- `npx tsc --noEmit`: types.
+- `npm run db:migrate`: apply committed migrations to DATABASE_URL.
+- `npm audit --omit=dev`: audit deployed dependencies.
 
-Local previews use Miniflare's placeholder `Request.cf` metadata without a network lookup. Set `CLOUDFLARE_CF_FETCH_ENABLED=true` to opt into fetching preview metadata; this setting does not change hosted request metadata.
+## Verification
 
-Local tool usage metrics are disabled by default. Set `WRANGLER_SEND_METRICS=true` to opt in.
+The in-process tests run the actual API handler against the generated Postgres schema with injected test-only identity and storage adapters. The deployed route always imports the real adapters. There is no environment flag, request header, or URL that enables mocked authentication.
 
-## Included Shape
+For HTTP smoke tests against `next dev`:
 
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `@cloudflare/workers-types` provides Worker types; `cloudflare-env.d.ts` declares optional `DB`/`BUCKET` bindings—update these declarations if binding names change
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+- `node tests/api-smoke.mjs --public-only` verifies public rendering, anonymous access rejection, strict Origin checks, legacy identity-header rejection and security headers without credentials.
+- Set `WISHNEST_TEST_SESSION_TOKEN` in your shell to a **short-lived Clerk session JWT for a disposable development user**, then run `node tests/api-smoke.mjs`. Configure all service credentials first. A Clerk bot-protection testing token alone is **not** an authenticated session.
+- Optional `WISHNEST_TEST_ORIGIN` defaults to http://127.0.0.1:3000. The runner refuses remote hosts, credentials embedded in URLs, non-HTTP schemes and redirects. It creates explicitly named test lists/photos; use disposable development resources.
 
-## Workspace Auth Headers
+Manual/preview acceptance still required: sign up → create list → add photo and HTTPS link → anonymous guest reserve/extend/purchase/release → second-guest conflict → owner masked state → private list and photo 404s. Check actual Vercel request origins and Secure cookies behind its proxy, plus the configured Clerk sign-in/sign-out flow. In-process tests do not prove deployed service configuration.
 
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
+## Security and data
 
-The user ID is stable for the same user on the same Site and different across Sites. Use it as the durable user key; use email and name for display or contact purposes.
+- Mutations require an Origin exactly equal to `new URL(request.url).origin`; missing Origin is rejected. Forwarded headers cannot override this decision.
+- Guest cookies are HttpOnly/SameSite=Lax, last 90 days, and are Secure on Vercel, HTTPS and production. Only SHA-256 hashes enter the database; JSON never returns the raw credential.
+- Reservation transitions and owner edits/pauses use conditional SQL updates. A Neon HTTP transactional batch acquires a per-guest advisory lock before the conditional reservation update. Explicit read-committed isolation gives the update a fresh snapshot after acquiring the lock, protecting the ten-active-hold limit across concurrent requests. The cap is part of the UPDATE, not a JavaScript read-then-write.
+- Recipients cannot reserve their own gifts. Reservation identity/timing is masked in owner/other-guest serializers.
+- Private events are 404 to non-owners. An unlisted UUID link is not invitation authentication.
+- Photos use random keys in a private Blob store. The database records ownership. The API checks access **before** retrieving bytes and streams them with private/no-store and nosniff headers. It never exposes raw storage URLs.
+- HTTPS-only links without embedded credentials; Zod input validation; 12,000-byte JSON cap and 2,000,000-byte photo cap checked against headers and streamed byte counts; JPEG/PNG/WebP signatures checked.
+- Client errors are generic. Database exceptions, connection strings and credentials are not returned or logged.
+- No payment or independent purchase-verification integration is implemented. “Purchased” remains self-confirmed.
 
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
+## Migration history and dependency note
 
-Treat the full name as optional and fall back to email when it is absent:
+This replaces the Cloudflare/vinext/ChatGPT Sites starter. The old build, Worker bindings, connectors and trusted `oai-authenticated-*` header path have been removed. This is a **fresh database**: old ChatGPT owner IDs are not Clerk user IDs, and no existing data/photos are being migrated.
 
-```tsx
-import { headers } from "next/headers";
+The user's follow-up requires **literal zero Cloudflare names in dependencies and the lockfile**, including optional metadata. Therefore both node-postgres (which includes `pg-cloudflare`) and Drizzle (which declares an optional `@cloudflare/workers-types` peer) have been removed. The approved infrastructure adjustment uses Neon's HTTP driver directly, bound SQL parameters, and versioned SQL migrations. No upstream metadata is patched or hidden. `package.json` and `package-lock.json` contain zero Cloudflare, Vinext or Wrangler names.
 
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use the returned `userId` as the stable user key for user-owned records; do not use email as a durable identifier.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Local D1 migrations
-
-For a D1-backed local preview, generate SQL with `npm run db:generate`. Build once through the Sites skill's build entrypoint (or `npm run build` for standalone use) to generate `dist/server/wrangler.json`, rebuilding if bindings change. From the project root, apply each pending migration in order:
-
-```sh
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_example.sql
-```
-
-Replace the filename with the pending migration and `DB` with your D1 binding name if different. Use `.wrangler/state`, not `.wrangler/state/v3`; Wrangler adds the versioned directories. Do not replay migrations already applied locally. This updates only the preview database; publishing applies production migrations separately.
-
-## Diagnostic Commands
-
-- `npm run install:ci`: perform the one locked dependency install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: preview the built Worker locally with D1/R2 support
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-When using the Sites plugin, follow its skill instructions for installation, builds, and publishing. These npm commands remain available for standalone use.
-
-The portable build runs Vinext directly without a host `timeout` command. The managed-linux build uses `scripts/build-verified.sh` and its existing `SITES_BUILD_TIMEOUT` setting.
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Reference documentation: [Clerk middleware](https://clerk.com/docs/reference/nextjs/clerk-middleware), [private Blob storage](https://vercel.com/docs/vercel-blob/private-storage), [Neon transactional HTTP queries](https://neon.com/docs/serverless/serverless-driver).
