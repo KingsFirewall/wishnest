@@ -1,34 +1,18 @@
-# Wishnest — Vercel migration
+# Wishnest — build status
 
-## Preserved product
+## Stack
 
-Existing wishlist and celebration UI, colors, CSS, artwork, homepage, guest gift finder, owner budget-balance tool, demo, filters, and form layout remain intact. Header authentication controls and sign-in/up pages are the only required new UI surfaces. Minor framework lint/hydration fixes do not alter presentation.
+Next.js 16.3.8 / React 19.2.9 on Vercel (Node 22.x). Supabase Postgres via the transaction pooler (`postgres` driver, bound parameters, checksummed SQL migrations), Supabase Auth (passwordless email link, verified with `getClaims()`), and a private Supabase Storage bucket served only through `/api/images/<uuid>`.
 
-## Infrastructure implemented
+## Verified
 
-- Standard Next.js 16.3.8 / React 19.2.9, Node 22.x.
-- Lazy Neon HTTP client and versioned SQL migrations; bigint millisecond timestamps.
-- Private Blob image proxy and database-backed ownership.
-- Clerk session authentication, protected owner dashboard and server-side checks.
-- Strict request origin validation, bounded request bodies, generic errors and security headers.
-- Atomic reservations, owner updates and pauses; transaction-serialized ten-hold limit.
-- PGlite API/reservation/privacy/photo tests and a credential-dependent localhost HTTP runner.
-
-## Verification
-
-20 tests pass, including PostgreSQL API/reservation/privacy/photo checks, migration repeatability/checksum/rollback checks, and the Neon HTTP batch transport contract. TypeScript is clean; lint has zero errors and four retained presentation/performance warnings. The anonymous localhost HTTP smoke test passes. The production dependency audit is recorded in the PR.
-
-The standard local Turbopack build is blocked by this host's process/port permissions. A webpack production build succeeds and produces the route manifest; this is a diagnostic only and the checked-in build command remains `next build`. Local checks use the available Node 26 runtime. A clean Node 22 default-build verification remains pending. No credential-dependent verification is claimed.
-
-Draft review: [PR #1](https://github.com/KingsFirewall/wishnest/pull/1), branch `vercel-migration`. Vercel's automated deployment check reports success for code commit `1e11276`. The preview is protected by Vercel SSO, so unauthenticated probes cannot reach the app. Build logs/runtime settings and live-service acceptance are not independently verified by that status.
+- `npm test`: 20 tests pass, including the API against real Postgres (PGlite), atomic reservations, privacy, photo access, migrations, and RLS on every table.
+- `npx tsc --noEmit` clean; `npm run lint` 0 errors (4 pre-existing image warnings); `npm run build` succeeds.
+- Supabase project `wishnest` (us-east-1): schema and RLS applied, migration history recorded, private `wish-photos` bucket created, security advisor shows only the expected "RLS enabled, no policy" notices.
 
 ## Pending before launch
 
-- Configure Neon, private Blob, Clerk and run migrations against the intended fresh database.
-- Real sign-up/sign-in, database, photo storage and cookie testing with deployed credentials.
-- Vercel Preview Origin/proxy checks, two-guest browser flow and physical-device/cross-browser acceptance.
-- Verify a clean install and the default production build on Node 22 in Vercel Preview or CI. The connected GitHub token lacks workflow-write scope, so no Actions workflow has been added.
+- Add environment variables in Vercel; set Supabase Auth redirect URLs and custom SMTP.
+- Live test: sign in → create list → photo + link → guest reserve/extend/purchase/release in two browsers → owner sees "handled" → private list and photo return 404.
 
-The user explicitly required zero legacy-platform names even in lockfile metadata. The ORM and its migration generator were therefore replaced by direct parameterized Neon queries and checksummed SQL migrations. Dependency manifests meet the literal zero-name requirement; see README for the approved stack adjustment.
-
-Existing product limitations remain: no independent purchase verification, payments, email reminders/recovery, automatic product metadata import, invite-only lists, co-owners, or full production abuse/storage-quota controls.
+Known product limits: no purchase verification, payments, reminders, co-owners or invite-only lists; no per-user upload quota or IP-based reservation limits.

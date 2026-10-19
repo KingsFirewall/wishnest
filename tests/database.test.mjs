@@ -1,8 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { neonConfig } from '@neondatabase/serverless';
-import { createDatabase } from '../db/neon.ts';
 import { sql } from '../db/sql.ts';
 import { loadMigrations, applyMigrations } from '../db/migrations.mjs';
 import { testDatabase } from './database.mjs';
@@ -12,25 +10,12 @@ test('SQL tag binds malicious values without inserting them into SQL text', () =
   assert.deepEqual(sql`SELECT ${value}, ${null}, ${123}`, { text: 'SELECT $1, $2, $3', params: [value, null, 123] });
 });
 
-test('Neon transport sends parameters and one ordered read-committed transaction', async t => {
-  const previous = neonConfig.fetchFunction;
-  t.after(() => { neonConfig.fetchFunction = previous; });
-  const requests = [];
-  neonConfig.fetchFunction = async (_url, options) => {
-    const body = JSON.parse(options.body);
-    requests.push({ body, headers: new Headers(options.headers) });
-    const result = { fields: [{name: 'id', dataTypeID: 25}], rows: [['gift']], rowCount: 1, command: 'UPDATE' };
-    return Response.json(body.queries ? { results: body.queries.map(() => result) } : result);
-  };
-  const db = createDatabase('postgresql://test:test@db.example.invalid/test');
-  assert.equal((await db.execute(sql`SELECT ${"x'"} AS id`)).rows[0].id, 'gift');
-  assert.equal(requests[0].body.query, 'SELECT $1 AS id');
-  assert.deepEqual(requests[0].body.params, ["x'"]);
-  const result = await db.batch([sql`SELECT ${1}`, sql`SELECT ${2}`, sql`SELECT ${3}`]);
-  assert.equal(result.length, 3);
-  assert.equal(requests.length, 2);
-  assert.deepEqual(requests[1].body.queries.map(q => q.params), [['1'], ['2'], ['3']]);
-  assert.equal(requests[1].headers.get('Neon-Batch-Isolation-Level'), 'ReadCommitted');
+test('every app table has row level security so the Supabase Data API cannot reach it', async t => {
+  const {pg} = await testDatabase();
+  t.after(() => pg.close());
+  const {rows} = await pg.query("SELECT relname, relrowsecurity FROM pg_class WHERE relkind='r' AND relnamespace='public'::regnamespace ORDER BY relname");
+  assert.deepEqual(rows.map(r => r.relname), ['celebrations', 'images', 'wishes', 'wishnest_schema_migrations']);
+  for (const row of rows) assert.equal(row.relrowsecurity, true, row.relname);
 });
 
 test('migrations are repeatable, reject modified history, and roll back failed DDL', async t => {

@@ -1,14 +1,14 @@
-// Real Next.js HTTP smoke test. Use a Clerk test-instance session JWT, never a production identity.
+// Real Next.js HTTP smoke test. Use a disposable Supabase development user's session cookie, never a production identity.
 import assert from 'node:assert/strict';
 const base=process.env.WISHNEST_TEST_ORIGIN||'http://127.0.0.1:3000';
 const parsed=new URL(base);
 if(parsed.protocol!=='http:' || parsed.username || parsed.password || parsed.pathname!=='/' || parsed.search || parsed.hash) throw new Error('Plain localhost origin required.');
 if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw new Error('Local test server required.');
-const sessionToken=process.env.WISHNEST_TEST_SESSION_TOKEN;
+const sessionCookie=process.env.WISHNEST_TEST_AUTH_COOKIE;
 const publicOnly=process.argv.includes('--public-only');
-if(!sessionToken && !publicOnly) throw new Error('Set WISHNEST_TEST_SESSION_TOKEN to a short-lived Clerk test-user session JWT, or use --public-only.');
+if(!sessionCookie && !publicOnly) throw new Error('Set WISHNEST_TEST_AUTH_COOKIE to the sb-…-auth-token cookie (name=value) of a disposable development user, or use --public-only.');
 async function request(path,{method='GET',body,owner=false,cookie='',origin=base}={}){
- const headers={Origin:origin,...(owner?{Authorization:`Bearer ${sessionToken}`}:{}),...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:{})};
+ const headers={Origin:origin,...(owner||cookie?{Cookie:[owner?sessionCookie:'',cookie].filter(Boolean).join('; ')}:{}),...(body?{'Content-Type':'application/json'}:{})};
  const r=await fetch(base+'/api/'+path,{redirect:'error',method,headers,body:body?JSON.stringify(body):undefined});return{status:r.status,cookie:r.headers.get('set-cookie')?.split(';')[0],data:await r.json()};
 }
 assert.equal((await request('celebrations')).status,401);
@@ -21,7 +21,7 @@ assert.equal(home.status,200);
 assert.equal(home.headers.get('x-content-type-options'),'nosniff');
 assert.equal(home.headers.get('x-frame-options'),'DENY');
 if(publicOnly) { console.log('PASS: anonymous access boundaries, forged identity rejection, CSRF and security headers. Authenticated flows NOT tested.'); process.exit(0); }
-assert.equal((await request('celebrations',{owner:true})).status,200,'Clerk test session must authenticate before creating fixtures.');
+assert.equal((await request('celebrations',{owner:true})).status,200,'Supabase session cookie must authenticate before creating fixtures.');
 
 const event={title:'API smoke test',occasion:'Birthday',date:'2026-01-01',message:'Local test fixture',currency:'USD',theme:'sage',visibility:'unlisted'};
 const created=await request('celebrations',{method:'POST',body:event,owner:true});assert.equal(created.status,201,JSON.stringify(created));
@@ -32,7 +32,7 @@ const slug=page.data.celebration.slug;
 const wish={title:'Test gift',note:'Testing reliable reservations',kind:'product',category:'Other',price:1500,url:'https://example.com/item',image:'',priority:0,art:'gift'};
 assert.equal((await request(`celebrations/${id}/wishes`,{method:'POST',owner:true,body:{...wish,url:'javascript:alert(1)'}})).status,400);
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64');
-const uploaded=await fetch(base+'/api/images',{method:'POST',redirect:'error',headers:{Origin:base,Authorization:`Bearer ${sessionToken}`,'Content-Type':'image/png'},body:png});
+const uploaded=await fetch(base+'/api/images',{method:'POST',redirect:'error',headers:{Origin:base,Cookie:sessionCookie,'Content-Type':'image/png'},body:png});
 assert.equal(uploaded.status,201);
 const image=(await uploaded.json()).url;
 assert.match(image,/^\/api\/images\/[a-f0-9-]{36}$/);

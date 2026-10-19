@@ -1,12 +1,16 @@
 import "server-only";
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { supabaseConfigured } from "./supabase/config";
+import { createSupabaseServerClient } from "./supabase/server";
 
 export async function getUser(): Promise<{ userId: string; displayName: string } | null> {
   // Missing configuration must never create an authenticated identity.
-  if (!process.env.CLERK_SECRET_KEY || !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return null;
-  const session = await auth();
-  if (!session.userId) return null;
-  const user = await currentUser();
-  if (!user) return null;
-  return { userId: session.userId, displayName: user.fullName || user.primaryEmailAddress?.emailAddress || "Wishnest member" };
+  if (!supabaseConfigured) return null;
+  const supabase = await createSupabaseServerClient();
+  // getClaims verifies the session JWT signature; never trust getSession() on the server.
+  const { data, error } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (error || !claims?.sub) return null;
+  const meta = (claims.user_metadata ?? {}) as Record<string, unknown>;
+  const name = typeof meta.full_name === "string" ? meta.full_name : typeof meta.name === "string" ? meta.name : null;
+  return { userId: claims.sub, displayName: name || (typeof claims.email === "string" ? claims.email : "Wishnest member") };
 }

@@ -141,7 +141,7 @@ export function createApiHandler(deps: Dependencies) {
       if (action === "reserve") {
         const token = guest || crypto.randomUUID(), tokenHash = guestHash || await hash(token);
         const now = Date.now(), expires = now + 86400000;
-        // Neon HTTP runs this ordered batch in one transaction. The lock MUST
+        // This ordered batch runs in one transaction. The lock MUST
         // be a separate statement: the conditional UPDATE then receives a fresh
         // read-committed snapshot after any same-guest transaction finishes.
         const [, changed, count] = await db.batch([
