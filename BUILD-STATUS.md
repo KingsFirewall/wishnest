@@ -20,6 +20,8 @@ Existing wishlist and celebration UI, colors, CSS, artwork, homepage, guest gift
 
 The standard local Turbopack build is blocked by this host's process/port permissions. A webpack production build succeeds and produces the route manifest; this is a diagnostic only and the checked-in build command remains `next build`. Local checks use the available Node 26 runtime. A clean Node 22 default-build verification remains pending. No credential-dependent verification is claimed.
 
+Draft review: [PR #1](https://github.com/KingsFirewall/wishnest/pull/1), branch `vercel-migration`. Vercel's automated deployment check reports success for code commit `1e11276`. The preview is protected by Vercel SSO, so unauthenticated probes cannot reach the app. Build logs/runtime settings and live-service acceptance are not independently verified by that status.
+
 ## Pending before launch
 
 - Configure Neon, private Blob, Clerk and run migrations against the intended fresh database.
