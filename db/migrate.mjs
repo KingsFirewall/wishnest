@@ -1,8 +1,8 @@
-import { loadEnvConfig } from '@next/env';
+import nextEnv from '@next/env';
 import { createDatabase } from './postgres.ts';
 import { loadMigrations, applyMigrations } from './migrations.mjs';
 
-loadEnvConfig(process.cwd());
+nextEnv.loadEnvConfig(process.cwd());
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required; confirm the intended database before migrating.');
 const db = createDatabase(process.env.DATABASE_URL);
 try {
